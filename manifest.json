@@ -6,7 +6,7 @@
   "ui": "ui.html",
   "editorType": ["figma"],
   "networkAccess": {
-    "allowedDomains": ["http://localhost:*"],
+    "allowedDomains": ["http://localhost:8767"],
     "reasoning": "Communicate with local bridge server for adb screenshots"
   }
 }

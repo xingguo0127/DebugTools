@@ -170,22 +170,38 @@ window.onmessage = async (e) => {
 
   if (msg.type === 'export-result') {
     try {
-      // Copy image to clipboard
-      const blob = new Blob([new Uint8Array(msg.png)], { type: 'image/png' });
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
+      // Send PNG and JSON to bridge server as JSON
+      const pngArray = Array.from(new Uint8Array(msg.png));
+      const payload = {
+        name: msg.frameName,
+        png: pngArray,
+        json: msg.json
+      };
 
-      // Also copy JSON as text (user can paste separately)
-      const jsonStr = JSON.stringify(msg.json, null, 2);
-
-      setStatus(
-        `Copied "${msg.frameName}" image to clipboard!\n\n` +
-        `JSON (select & copy if needed):\n${jsonStr}`,
-        'success'
-      );
+      const resp = await fetch(getUrl() + '/api/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(30000)
+      });
+      const result = await resp.json();
+      if (result.error) {
+        setStatus('Export error: ' + result.error, 'error');
+      } else if (result.clipboard) {
+        setStatus(
+          `Exported "${msg.frameName}" and copied to clipboard!\n` +
+          `Paste directly into Claude Code to use.`,
+          'success'
+        );
+      } else {
+        setStatus(
+          `Exported "${msg.frameName}"!\n` +
+          `PNG: ${result.png_path}\nJSON: ${result.json_path}`,
+          'success'
+        );
+      }
     } catch (e) {
-      setStatus('Clipboard error: ' + e.message + '\nTry clicking inside the plugin first.', 'error');
+      setStatus('Export error: ' + e.message, 'error');
     }
   }
 };

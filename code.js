@@ -92,7 +92,7 @@ function traverseChildren(parent, offsetX, offsetY, out) {
       });
     } else if (child.type === 'RECTANGLE') {
       // Check if it's an image fill
-      const imgFill = child.fills?.find?.(f => f.type === 'IMAGE');
+      const imgFill = child.fills && child.fills.find(function(f) { return f.type === 'IMAGE'; });
       if (imgFill) {
         out.push({
           type: 'image',
