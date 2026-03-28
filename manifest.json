@@ -1,0 +1,12 @@
+{
+  "name": "Whiteboard Bridge",
+  "id": "whiteboard-bridge-dev",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "networkAccess": {
+    "allowedDomains": ["http://localhost:*"],
+    "reasoning": "Communicate with local bridge server for adb screenshots"
+  }
+}

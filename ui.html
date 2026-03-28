@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: Inter, -apple-system, sans-serif; padding: 16px; background: #fff; color: #333; font-size: 13px; }
+h3 { font-size: 14px; font-weight: 600; margin-bottom: 12px; color: #1e1e1e; }
+.section { margin-bottom: 16px; }
+.section-title { font-size: 11px; font-weight: 600; color: #999; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 8px; }
+button {
+  width: 100%; padding: 8px 12px; border: none; border-radius: 8px;
+  font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s;
+  margin-bottom: 6px; display: flex; align-items: center; gap: 8px;
+}
+.btn-primary { background: #0c8ce9; color: #fff; }
+.btn-primary:hover { background: #0a7ad4; }
+.btn-primary:disabled { background: #ccc; cursor: default; }
+.btn-secondary { background: #f0f0f0; color: #333; }
+.btn-secondary:hover { background: #e4e4e4; }
+
+.bridge-url {
+  width: 100%; padding: 6px 10px; border: 1px solid #e0e0e0; border-radius: 6px;
+  font-size: 12px; margin-bottom: 8px; outline: none; font-family: monospace;
+}
+.bridge-url:focus { border-color: #0c8ce9; }
+
+#status {
+  padding: 8px; border-radius: 6px; font-size: 11px; color: #666;
+  background: #f7f7f7; min-height: 32px; word-break: break-all;
+  margin-top: 8px; white-space: pre-wrap;
+}
+#status.error { background: #fef2f2; color: #dc2626; }
+#status.success { background: #f0fdf4; color: #16a34a; }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; }
+.dot.on { background: #16a34a; }
+.dot.off { background: #dc2626; }
+.dot.unknown { background: #ccc; }
+#connection { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; font-size: 12px; color: #666; }
+</style>
+</head>
+<body>
+
+<h3>Whiteboard Bridge</h3>
+
+<div id="connection">
+  <span class="dot unknown" id="dot"></span>
+  <span id="conn-text">Not connected</span>
+</div>
+
+<div class="section">
+  <div class="section-title">Bridge Server</div>
+  <input class="bridge-url" id="bridge-url" value="http://localhost:8767" placeholder="http://localhost:8765">
+  <button class="btn-secondary" id="btn-check" onclick="checkConnection()">Check Connection</button>
+</div>
+
+<div class="section">
+  <div class="section-title">Screenshot</div>
+  <button class="btn-primary" id="btn-screenshot" onclick="takeScreenshot()">Take Screenshot (adb)</button>
+</div>
+
+<div class="section">
+  <div class="section-title">Export</div>
+  <button class="btn-primary" onclick="exportFrame()">Copy Frame for Claude</button>
+</div>
+
+<div id="status"></div>
+
+<script>
+const statusEl = document.getElementById('status');
+const dotEl = document.getElementById('dot');
+const connText = document.getElementById('conn-text');
+let bridgeOk = false;
+
+function getUrl() {
+  return document.getElementById('bridge-url').value.replace(/\/+$/, '');
+}
+
+function setStatus(text, type) {
+  statusEl.textContent = text;
+  statusEl.className = type || '';
+}
+
+// ── Check bridge connection ──
+async function checkConnection() {
+  try {
+    const resp = await fetch(getUrl() + '/api/images', { signal: AbortSignal.timeout(3000) });
+    if (resp.ok) {
+      bridgeOk = true;
+      dotEl.className = 'dot on';
+      connText.textContent = 'Connected';
+      setStatus('Bridge server is running', 'success');
+    } else {
+      throw new Error('Server returned ' + resp.status);
+    }
+  } catch (e) {
+    bridgeOk = false;
+    dotEl.className = 'dot off';
+    connText.textContent = 'Disconnected';
+    setStatus('Cannot reach bridge: ' + e.message, 'error');
+  }
+}
+
+// ── Take screenshot via bridge ──
+async function takeScreenshot() {
+  setStatus('Taking screenshot...');
+  const btn = document.getElementById('btn-screenshot');
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(getUrl() + '/api/screenshot', {
+      method: 'POST',
+      signal: AbortSignal.timeout(15000)
+    });
+    const data = await resp.json();
+    if (data.error) {
+      setStatus('Screenshot failed: ' + data.error, 'error');
+      btn.disabled = false;
+      return;
+    }
+
+    // Fetch the image bytes
+    const imgResp = await fetch(getUrl() + '/images/' + data.filename);
+    const imgBuf = await imgResp.arrayBuffer();
+    const bytes = new Uint8Array(imgBuf);
+
+    // Get image dimensions
+    let w = 360, h = 780;
+    // Read PNG header for actual dimensions
+    if (bytes[0] === 0x89 && bytes[1] === 0x50) { // PNG
+      const dv = new DataView(imgBuf);
+      const imgW = dv.getUint32(16);
+      const imgH = dv.getUint32(20);
+      // Scale down for canvas (phone screenshots are huge)
+      const scale = 360 / imgW;
+      w = 360;
+      h = Math.round(imgH * scale);
+    }
+
+    // Send to sandbox to insert
+    parent.postMessage({ pluginMessage: {
+      type: 'insert-screenshot',
+      data: Array.from(bytes),
+      filename: data.filename,
+      width: w,
+      height: h
+    }}, '*');
+
+    setStatus('Screenshot: ' + data.filename, 'success');
+  } catch (e) {
+    setStatus('Error: ' + e.message, 'error');
+  }
+  btn.disabled = false;
+}
+
+// ── Export frame ──
+function exportFrame() {
+  setStatus('Exporting selected frame...');
+  parent.postMessage({ pluginMessage: { type: 'export-frame' } }, '*');
+}
+
+// ── Messages from sandbox ──
+window.onmessage = async (e) => {
+  const msg = e.data.pluginMessage;
+  if (!msg) return;
+
+  if (msg.type === 'status') {
+    setStatus(msg.text, msg.text.startsWith('Error') ? 'error' : '');
+  }
+
+  if (msg.type === 'export-result') {
+    try {
+      // Copy image to clipboard
+      const blob = new Blob([new Uint8Array(msg.png)], { type: 'image/png' });
+      await navigator.clipboard.write([
+        new ClipboardItem({ 'image/png': blob })
+      ]);
+
+      // Also copy JSON as text (user can paste separately)
+      const jsonStr = JSON.stringify(msg.json, null, 2);
+
+      setStatus(
+        `Copied "${msg.frameName}" image to clipboard!\n\n` +
+        `JSON (select & copy if needed):\n${jsonStr}`,
+        'success'
+      );
+    } catch (e) {
+      setStatus('Clipboard error: ' + e.message + '\nTry clicking inside the plugin first.', 'error');
+    }
+  }
+};
+
+// Auto-check on load
+setTimeout(checkConnection, 500);
+</script>
+</body>
+</html>
