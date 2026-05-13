@@ -204,6 +204,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except FileNotFoundError:
             self._json({"error": "hdc not found in PATH"})
         except Exception as e:
+            self._hdc_cleanup(device_path)
             self._json({"error": str(e)})
 
     def _hdc_cleanup(self, device_path):
