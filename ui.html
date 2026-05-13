@@ -56,7 +56,7 @@ button {
 
 <div class="section">
   <div class="section-title">Screenshot</div>
-  <button class="btn-primary" id="btn-screenshot" onclick="takeScreenshot('adb', this)">Take Screenshot (adb)</button>
+  <div id="screenshot-buttons"></div>
 </div>
 
 <div class="section">
@@ -90,6 +90,7 @@ async function checkConnection() {
       dotEl.className = 'dot on';
       connText.textContent = 'Connected';
       setStatus('Bridge server is running', 'success');
+      await refreshDevices();
     } else {
       throw new Error('Server returned ' + resp.status);
     }
@@ -98,6 +99,40 @@ async function checkConnection() {
     dotEl.className = 'dot off';
     connText.textContent = 'Disconnected';
     setStatus('Cannot reach bridge: ' + e.message, 'error');
+    document.getElementById('screenshot-buttons').innerHTML = '';
+  }
+}
+
+async function refreshDevices() {
+  const container = document.getElementById('screenshot-buttons');
+  container.innerHTML = '';
+  try {
+    const resp = await fetch(getUrl() + '/api/devices', { signal: AbortSignal.timeout(3000) });
+    const devices = await resp.json();
+    const hasAdb = devices.adb && devices.adb.length > 0;
+    const hasHdc = devices.hdc && devices.hdc.length > 0;
+    if (hasAdb) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.textContent = 'Take Screenshot (Android)';
+      btn.onclick = () => takeScreenshot('adb', btn);
+      container.appendChild(btn);
+    }
+    if (hasHdc) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.textContent = 'Take Screenshot (HarmonyOS)';
+      btn.onclick = () => takeScreenshot('hdc', btn);
+      container.appendChild(btn);
+    }
+    if (!hasAdb && !hasHdc) {
+      const msg = document.createElement('div');
+      msg.style.cssText = 'font-size:12px;color:#999;padding:6px 0;';
+      msg.textContent = 'No device detected. Connect a device and click Check Connection.';
+      container.appendChild(msg);
+    }
+  } catch (e) {
+    container.innerHTML = '';
   }
 }
 
