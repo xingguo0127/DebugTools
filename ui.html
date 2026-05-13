@@ -60,11 +60,6 @@ button {
   <div id="screenshot-buttons"></div>
 </div>
 
-<div class="section">
-  <div class="section-title">Export</div>
-  <button class="btn-primary" onclick="exportFrame()">Copy Frame for Claude</button>
-</div>
-
 <div id="status"></div>
 
 <script>
@@ -192,56 +187,13 @@ async function takeScreenshot(type, btn) {
   btn.disabled = false;
 }
 
-// ── Export frame ──
-function exportFrame() {
-  setStatus('Exporting selected frame...');
-  parent.postMessage({ pluginMessage: { type: 'export-frame' } }, '*');
-}
-
 // ── Messages from sandbox ──
-window.onmessage = async (e) => {
+window.onmessage = (e) => {
   const msg = e.data.pluginMessage;
   if (!msg) return;
 
   if (msg.type === 'status') {
     setStatus(msg.text, msg.text.startsWith('Error') ? 'error' : '');
-  }
-
-  if (msg.type === 'export-result') {
-    try {
-      // Send PNG and JSON to bridge server as JSON
-      const pngArray = Array.from(new Uint8Array(msg.png));
-      const payload = {
-        name: msg.frameName,
-        png: pngArray,
-        json: msg.json
-      };
-
-      const resp = await fetch(getUrl() + '/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30000)
-      });
-      const result = await resp.json();
-      if (result.error) {
-        setStatus('Export error: ' + result.error, 'error');
-      } else if (result.clipboard) {
-        setStatus(
-          `Exported "${msg.frameName}" and copied to clipboard!\n` +
-          `Paste directly into Claude Code to use.`,
-          'success'
-        );
-      } else {
-        setStatus(
-          `Exported "${msg.frameName}"!\n` +
-          `PNG: ${result.png_path}\nJSON: ${result.json_path}`,
-          'success'
-        );
-      }
-    } catch (e) {
-      setStatus('Export error: ' + e.message, 'error');
-    }
   }
 };
 

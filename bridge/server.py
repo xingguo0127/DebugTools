@@ -54,10 +54,6 @@ def _image_dimensions(path):
 PORT = 8767
 IMAGES_DIR = Path(__file__).parent / "images"
 IMAGES_DIR.mkdir(exist_ok=True)
-EXPORTS_DIR = Path(__file__).parent / "exports"
-EXPORTS_DIR.mkdir(exist_ok=True)
-
-
 class BridgeHandler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass  # quiet
@@ -86,8 +82,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/screenshot":
             self._screenshot()
-        elif path == "/api/export":
-            self._export()
         else:
             self.send_error(404)
 
@@ -242,47 +236,6 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return buf.getvalue()
         except Exception:
             return None
-
-    def _export(self):
-        try:
-            length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(length)
-            data = json.loads(body)
-
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            name = data.get("name", "frame")
-            safe_name = "".join(c if c.isalnum() or c in "-_ " else "_" for c in name)
-
-            png_bytes = bytes(data["png"])
-            json_str = json.dumps(data.get("json", {}), indent=2)
-
-            png_path = EXPORTS_DIR / f"{safe_name}_{ts}.png"
-            json_path = EXPORTS_DIR / f"{safe_name}_{ts}.json"
-            png_path.write_bytes(png_bytes)
-            json_path.write_text(json_str)
-
-            # Copy prompt + file paths to clipboard via pbcopy
-            clip_text = (
-                f"请查看以下截图上标注的问题，并根据标注内容进行修复：\n"
-                f"截图：{png_path}\n"
-                f"标注信息：{json_path}"
-            )
-            try:
-                subprocess.run(
-                    ["pbcopy"], input=clip_text.encode("utf-8"),
-                    timeout=3, check=True,
-                )
-                clipboard_ok = True
-            except Exception:
-                clipboard_ok = False
-
-            self._json({
-                "png_path": str(png_path),
-                "json_path": str(json_path),
-                "clipboard": clipboard_ok,
-            })
-        except Exception as e:
-            self._json({"error": str(e)})
 
     def _file(self, fp):
         ct, _ = mimetypes.guess_type(str(fp))
