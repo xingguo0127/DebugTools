@@ -41,6 +41,16 @@ def parse_hdc_targets(stdout):
     return targets
 
 
+def _image_dimensions(path):
+    """Return (width, height) tuple if Pillow can open the file, else None."""
+    try:
+        from PIL import Image
+        with Image.open(path) as img:
+            return img.size
+    except Exception:
+        return None
+
+
 PORT = 8767
 IMAGES_DIR = Path(__file__).parent / "images"
 IMAGES_DIR.mkdir(exist_ok=True)
@@ -114,6 +124,22 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self._json({"adb": adb_list, "hdc": hdc_list})
 
     def _screenshot(self):
+        device_type = "adb"
+        try:
+            length = int(self.headers.get("Content-Length", 0))
+            if length > 0:
+                body = self.rfile.read(length)
+                data = json.loads(body)
+                device_type = data.get("type", "adb")
+        except Exception:
+            device_type = "adb"
+
+        if device_type == "hdc":
+            self._screenshot_hdc()
+        else:
+            self._screenshot_adb()
+
+    def _screenshot_adb(self):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.png"
         fp = IMAGES_DIR / fn
@@ -129,20 +155,21 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if len(raw) < 8:
                 self._json({"error": "screencap returned empty data"})
                 return
-            # Some devices print warning text before the PNG data.
-            # Find the PNG magic bytes and strip any leading text.
             png_start = raw.find(b'\x89PNG')
             if png_start >= 0:
                 fp.write_bytes(raw[png_start:])
             else:
-                # No PNG found — device may output raw RGBA pixels.
                 png_bytes = self._raw_to_png(raw)
                 if png_bytes is None:
                     self._json({"error": "screencap output is not PNG and could not be converted. "
                                          "Try: pip install Pillow"})
                     return
                 fp.write_bytes(png_bytes)
-            self._json({"filename": fn})
+            resp = {"filename": fn}
+            dims = _image_dimensions(fp)
+            if dims:
+                resp["width"], resp["height"] = dims
+            self._json(resp)
         except Exception as e:
             self._json({"error": str(e)})
 
