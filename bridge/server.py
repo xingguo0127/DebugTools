@@ -5,9 +5,11 @@ Handles adb screenshots and serves images.
 Usage: python server.py
 """
 
+import io
 import json
 import mimetypes
 import os
+import struct
 import subprocess
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -69,10 +71,53 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if r.returncode != 0:
                 self._json({"error": f"adb: {r.stderr.decode()}"})
                 return
-            fp.write_bytes(r.stdout)
+            raw = r.stdout
+            if len(raw) < 8:
+                self._json({"error": "screencap returned empty data"})
+                return
+            # Some devices print warning text before the PNG data.
+            # Find the PNG magic bytes and strip any leading text.
+            png_start = raw.find(b'\x89PNG')
+            if png_start >= 0:
+                fp.write_bytes(raw[png_start:])
+            else:
+                # No PNG found — device may output raw RGBA pixels.
+                png_bytes = self._raw_to_png(raw)
+                if png_bytes is None:
+                    self._json({"error": "screencap output is not PNG and could not be converted. "
+                                         "Try: pip install Pillow"})
+                    return
+                fp.write_bytes(png_bytes)
             self._json({"filename": fn})
         except Exception as e:
             self._json({"error": str(e)})
+
+    @staticmethod
+    def _raw_to_png(raw):
+        """Convert raw RGBA screencap data to PNG using Pillow.
+        Raw format: first 12 bytes = width(4) + height(4) + pixel_format(4),
+        followed by RGBA pixel data.
+        """
+        try:
+            from PIL import Image
+        except ImportError:
+            return None
+        try:
+            # Android raw screencap header: width, height, format (each 4 bytes LE)
+            if len(raw) < 12:
+                return None
+            w = struct.unpack_from('<I', raw, 0)[0]
+            h = struct.unpack_from('<I', raw, 4)[0]
+            pixel_data = raw[12:]
+            expected = w * h * 4  # RGBA
+            if len(pixel_data) < expected:
+                return None
+            img = Image.frombytes('RGBA', (w, h), pixel_data[:expected])
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            return buf.getvalue()
+        except Exception:
+            return None
 
     def _export(self):
         try:
