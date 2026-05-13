@@ -60,6 +60,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 if f.suffix.lower() in ('.png', '.jpg', '.jpeg'):
                     imgs.append({"name": f.name, "timestamp": os.path.getmtime(f)})
             self._json(imgs)
+        elif path == "/api/devices":
+            self._devices()
         elif path.startswith("/images/"):
             fname = path[len("/images/"):]
             fp = IMAGES_DIR / fname
@@ -83,6 +85,33 @@ class BridgeHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self._cors()
         self.end_headers()
+
+    def _devices(self):
+        adb_list = []
+        hdc_list = []
+        try:
+            r = subprocess.run(
+                ["adb", "devices"],
+                capture_output=True, timeout=5, text=True,
+            )
+            if r.returncode == 0:
+                adb_list = parse_adb_devices(r.stdout)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        try:
+            r = subprocess.run(
+                ["hdc", "list", "targets"],
+                capture_output=True, timeout=5, text=True,
+            )
+            if r.returncode == 0:
+                hdc_list = parse_hdc_targets(r.stdout)
+        except FileNotFoundError:
+            pass
+        except Exception:
+            pass
+        self._json({"adb": adb_list, "hdc": hdc_list})
 
     def _screenshot(self):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
