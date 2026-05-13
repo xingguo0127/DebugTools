@@ -16,6 +16,31 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+
+def parse_adb_devices(stdout):
+    """Parse `adb devices` output. Returns list of device IDs whose status is 'device'."""
+    devices = []
+    for line in stdout.splitlines()[1:]:  # skip "List of devices attached" header
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[1] == "device":
+            devices.append(parts[0])
+    return devices
+
+
+def parse_hdc_targets(stdout):
+    """Parse `hdc list targets` output. Returns list of connected target IDs."""
+    targets = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line or line == "[Empty]":
+            continue
+        targets.append(line)
+    return targets
+
+
 PORT = 8767
 IMAGES_DIR = Path(__file__).parent / "images"
 IMAGES_DIR.mkdir(exist_ok=True)
