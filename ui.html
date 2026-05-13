@@ -56,7 +56,7 @@ button {
 
 <div class="section">
   <div class="section-title">Screenshot</div>
-  <button class="btn-primary" id="btn-screenshot" onclick="takeScreenshot()">Take Screenshot (adb)</button>
+  <button class="btn-primary" id="btn-screenshot" onclick="takeScreenshot('adb', this)">Take Screenshot (adb)</button>
 </div>
 
 <div class="section">
@@ -102,15 +102,16 @@ async function checkConnection() {
 }
 
 // ── Take screenshot via bridge ──
-async function takeScreenshot() {
+async function takeScreenshot(type, btn) {
   setStatus('Taking screenshot...');
-  const btn = document.getElementById('btn-screenshot');
   btn.disabled = true;
 
   try {
     const resp = await fetch(getUrl() + '/api/screenshot', {
       method: 'POST',
-      signal: AbortSignal.timeout(15000)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+      signal: AbortSignal.timeout(30000)
     });
     const data = await resp.json();
     if (data.error) {
@@ -124,20 +125,22 @@ async function takeScreenshot() {
     const imgBuf = await imgResp.arrayBuffer();
     const bytes = new Uint8Array(imgBuf);
 
-    // Get image dimensions
+    // Determine display dimensions on the Figma canvas
     let w = 360, h = 780;
-    // Read PNG header for actual dimensions
-    if (bytes[0] === 0x89 && bytes[1] === 0x50) { // PNG
+    if (data.width && data.height) {
+      const scale = 360 / data.width;
+      w = 360;
+      h = Math.round(data.height * scale);
+    } else if (bytes[0] === 0x89 && bytes[1] === 0x50) {
+      // PNG header fallback
       const dv = new DataView(imgBuf);
       const imgW = dv.getUint32(16);
       const imgH = dv.getUint32(20);
-      // Scale down for canvas (phone screenshots are huge)
       const scale = 360 / imgW;
       w = 360;
       h = Math.round(imgH * scale);
     }
 
-    // Send to sandbox to insert
     parent.postMessage({ pluginMessage: {
       type: 'insert-screenshot',
       data: Array.from(bytes),
