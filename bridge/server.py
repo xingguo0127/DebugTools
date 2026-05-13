@@ -173,6 +173,48 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._json({"error": str(e)})
 
+    def _screenshot_hdc(self):
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        fn = f"screen_{ts}.jpeg"
+        device_path = f"/data/local/tmp/{fn}"
+        fp = IMAGES_DIR / fn
+        try:
+            r = subprocess.run(
+                ["hdc", "shell", "snapshot_display", "-f", device_path],
+                capture_output=True, timeout=15, text=True,
+            )
+            if r.returncode != 0:
+                self._json({"error": f"hdc snapshot_display: {(r.stderr or r.stdout).strip()}"})
+                self._hdc_cleanup(device_path)
+                return
+            r = subprocess.run(
+                ["hdc", "file", "recv", device_path, str(fp)],
+                capture_output=True, timeout=30, text=True,
+            )
+            if r.returncode != 0 or not fp.exists():
+                self._json({"error": f"hdc file recv: {(r.stderr or r.stdout).strip()}"})
+                self._hdc_cleanup(device_path)
+                return
+            self._hdc_cleanup(device_path)
+            resp = {"filename": fn}
+            dims = _image_dimensions(fp)
+            if dims:
+                resp["width"], resp["height"] = dims
+            self._json(resp)
+        except FileNotFoundError:
+            self._json({"error": "hdc not found in PATH"})
+        except Exception as e:
+            self._json({"error": str(e)})
+
+    def _hdc_cleanup(self, device_path):
+        try:
+            subprocess.run(
+                ["hdc", "shell", "rm", device_path],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+
     @staticmethod
     def _raw_to_png(raw):
         """Convert raw RGBA screencap data to PNG using Pillow.
