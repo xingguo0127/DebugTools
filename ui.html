@@ -52,16 +52,12 @@ button {
   <div class="section-title">Bridge Server</div>
   <input class="bridge-url" id="bridge-url" value="http://localhost:8767" placeholder="http://localhost:8765">
   <button class="btn-secondary" id="btn-check" onclick="checkConnection()">Check Connection</button>
+  <button class="btn-secondary" id="btn-refresh-devices" onclick="refreshDevices()">Refresh Devices</button>
 </div>
 
 <div class="section">
   <div class="section-title">Screenshot</div>
-  <button class="btn-primary" id="btn-screenshot" onclick="takeScreenshot()">Take Screenshot (adb)</button>
-</div>
-
-<div class="section">
-  <div class="section-title">Export</div>
-  <button class="btn-primary" onclick="exportFrame()">Copy Frame for Claude</button>
+  <div id="screenshot-buttons"></div>
 </div>
 
 <div id="status"></div>
@@ -90,6 +86,7 @@ async function checkConnection() {
       dotEl.className = 'dot on';
       connText.textContent = 'Connected';
       setStatus('Bridge server is running', 'success');
+      await refreshDevices();
     } else {
       throw new Error('Server returned ' + resp.status);
     }
@@ -98,19 +95,54 @@ async function checkConnection() {
     dotEl.className = 'dot off';
     connText.textContent = 'Disconnected';
     setStatus('Cannot reach bridge: ' + e.message, 'error');
+    document.getElementById('screenshot-buttons').innerHTML = '';
+  }
+}
+
+async function refreshDevices() {
+  const container = document.getElementById('screenshot-buttons');
+  container.innerHTML = '';
+  try {
+    const resp = await fetch(getUrl() + '/api/devices', { signal: AbortSignal.timeout(3000) });
+    const devices = await resp.json();
+    const hasAdb = devices.adb && devices.adb.length > 0;
+    const hasHdc = devices.hdc && devices.hdc.length > 0;
+    if (hasAdb) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.textContent = 'Take Screenshot (Android)';
+      btn.onclick = () => takeScreenshot('adb', btn);
+      container.appendChild(btn);
+    }
+    if (hasHdc) {
+      const btn = document.createElement('button');
+      btn.className = 'btn-primary';
+      btn.textContent = 'Take Screenshot (HarmonyOS)';
+      btn.onclick = () => takeScreenshot('hdc', btn);
+      container.appendChild(btn);
+    }
+    if (!hasAdb && !hasHdc) {
+      const msg = document.createElement('div');
+      msg.style.cssText = 'font-size:12px;color:#999;padding:6px 0;';
+      msg.textContent = 'No device detected. Connect a device and click Check Connection.';
+      container.appendChild(msg);
+    }
+  } catch (e) {
+    container.innerHTML = '';
   }
 }
 
 // ── Take screenshot via bridge ──
-async function takeScreenshot() {
+async function takeScreenshot(type, btn) {
   setStatus('Taking screenshot...');
-  const btn = document.getElementById('btn-screenshot');
   btn.disabled = true;
 
   try {
     const resp = await fetch(getUrl() + '/api/screenshot', {
       method: 'POST',
-      signal: AbortSignal.timeout(15000)
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type }),
+      signal: AbortSignal.timeout(30000)
     });
     const data = await resp.json();
     if (data.error) {
@@ -124,20 +156,22 @@ async function takeScreenshot() {
     const imgBuf = await imgResp.arrayBuffer();
     const bytes = new Uint8Array(imgBuf);
 
-    // Get image dimensions
+    // Determine display dimensions on the Figma canvas
     let w = 360, h = 780;
-    // Read PNG header for actual dimensions
-    if (bytes[0] === 0x89 && bytes[1] === 0x50) { // PNG
+    if (data.width && data.height) {
+      const scale = 360 / data.width;
+      w = 360;
+      h = Math.round(data.height * scale);
+    } else if (bytes[0] === 0x89 && bytes[1] === 0x50) {
+      // PNG header fallback
       const dv = new DataView(imgBuf);
       const imgW = dv.getUint32(16);
       const imgH = dv.getUint32(20);
-      // Scale down for canvas (phone screenshots are huge)
       const scale = 360 / imgW;
       w = 360;
       h = Math.round(imgH * scale);
     }
 
-    // Send to sandbox to insert
     parent.postMessage({ pluginMessage: {
       type: 'insert-screenshot',
       data: Array.from(bytes),
@@ -153,56 +187,13 @@ async function takeScreenshot() {
   btn.disabled = false;
 }
 
-// ── Export frame ──
-function exportFrame() {
-  setStatus('Exporting selected frame...');
-  parent.postMessage({ pluginMessage: { type: 'export-frame' } }, '*');
-}
-
 // ── Messages from sandbox ──
-window.onmessage = async (e) => {
+window.onmessage = (e) => {
   const msg = e.data.pluginMessage;
   if (!msg) return;
 
   if (msg.type === 'status') {
     setStatus(msg.text, msg.text.startsWith('Error') ? 'error' : '');
-  }
-
-  if (msg.type === 'export-result') {
-    try {
-      // Send PNG and JSON to bridge server as JSON
-      const pngArray = Array.from(new Uint8Array(msg.png));
-      const payload = {
-        name: msg.frameName,
-        png: pngArray,
-        json: msg.json
-      };
-
-      const resp = await fetch(getUrl() + '/api/export', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(30000)
-      });
-      const result = await resp.json();
-      if (result.error) {
-        setStatus('Export error: ' + result.error, 'error');
-      } else if (result.clipboard) {
-        setStatus(
-          `Exported "${msg.frameName}" and copied to clipboard!\n` +
-          `Paste directly into Claude Code to use.`,
-          'success'
-        );
-      } else {
-        setStatus(
-          `Exported "${msg.frameName}"!\n` +
-          `PNG: ${result.png_path}\nJSON: ${result.json_path}`,
-          'success'
-        );
-      }
-    } catch (e) {
-      setStatus('Export error: ' + e.message, 'error');
-    }
   }
 };
 
