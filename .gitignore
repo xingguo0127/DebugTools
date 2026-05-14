@@ -1,0 +1,5 @@
+bridge/__pycache__/
+bridge/images/
+bridge/exports/
+bridge/bridge.pid
+bridge/bridge.log
