@@ -119,21 +119,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def _screenshot(self):
         device_type = "adb"
+        annotate = False
+        options = {}
         try:
             length = int(self.headers.get("Content-Length", 0))
             if length > 0:
                 body = self.rfile.read(length)
                 data = json.loads(body)
                 device_type = data.get("type", "adb")
+                annotate = bool(data.get("annotate", False))
+                options = data.get("options", {}) or {}
         except Exception:
             device_type = "adb"
 
         if device_type == "hdc":
             self._screenshot_hdc()
         else:
-            self._screenshot_adb()
+            self._screenshot_adb(annotate, options)
 
-    def _screenshot_adb(self):
+    def _screenshot_adb(self, annotate=False, options=None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.png"
         fp = IMAGES_DIR / fn
@@ -163,9 +167,57 @@ class BridgeHandler(BaseHTTPRequestHandler):
             dims = _image_dimensions(fp)
             if dims:
                 resp["width"], resp["height"] = dims
+            if annotate:
+                self._annotate_into(resp, fp, options or {})
             self._json(resp)
         except Exception as e:
             self._json({"error": str(e)})
+
+    def _dump_ui_xml(self):
+        """adb uiautomator dump → 返回 XML 字符串，失败返回 None。"""
+        try:
+            r = subprocess.run(
+                ["adb", "shell", "uiautomator", "dump", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=15, text=True,
+            )
+            if r.returncode != 0:
+                return None
+            r = subprocess.run(
+                ["adb", "exec-out", "cat", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=15,
+            )
+            if r.returncode != 0 or not r.stdout:
+                return None
+            return r.stdout.decode("utf-8", "replace")
+        except Exception:
+            return None
+
+    def _annotate_into(self, resp, fp, options):
+        """在 resp 上把 filename 换成标注图；任何失败则保留原图并写 note。"""
+        try:
+            import annotate as ann
+        except Exception:
+            resp["note"] = "标注模块加载失败，已返回原图"
+            return
+        xml = self._dump_ui_xml()
+        if not xml:
+            resp["note"] = "未能获取层级，已返回原图"
+            return
+        try:
+            nodes = ann.parse_hierarchy(xml)
+            ann.classify_levels(nodes)
+            gaps = ann.compute_gaps(nodes)
+            png = ann.render(str(fp), nodes, gaps, options)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        ann_fn = fp.stem + "_annotated.png"
+        ann_fp = fp.parent / ann_fn
+        ann_fp.write_bytes(png)
+        resp["filename"] = ann_fn
+        dims = _image_dimensions(ann_fp)
+        if dims:
+            resp["width"], resp["height"] = dims
 
     def _screenshot_hdc(self):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
