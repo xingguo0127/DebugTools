@@ -31,6 +31,14 @@ class Node:
         return self.bounds[3] - self.bounds[1]
 
 
+@dataclass
+class Gap:
+    orientation: str   # 'h' | 'v'
+    value: int
+    x: int
+    y: int
+
+
 def _parse_bounds(s):
     nums = s.replace("[", " ").replace("]", " ").replace(",", " ").split()
     if len(nums) != 4:
@@ -88,3 +96,38 @@ def classify_levels(nodes):
             n.level = "secondary"
         else:
             n.level = None
+
+
+def _overlap(a1, a2, b1, b2):
+    return a1 < b2 and b1 < a2
+
+
+def compute_gaps(nodes):
+    """同一父容器下、相邻兄弟之间的水平/垂直空隙。"""
+    gaps = []
+    parents = {}
+    for n in nodes:
+        if n.parent is not None:
+            parents.setdefault(id(n.parent), []).append(n)
+    for sibs in parents.values():
+        if len(sibs) < 2:
+            continue
+        rows = sorted(sibs, key=lambda n: n.bounds[0])
+        for a, b in zip(rows, rows[1:]):
+            ax1, ay1, ax2, ay2 = a.bounds
+            bx1, by1, bx2, by2 = b.bounds
+            if _overlap(ay1, ay2, by1, by2) and bx1 >= ax2:
+                g = bx1 - ax2
+                if g > 0:
+                    gaps.append(Gap("h", g, (ax2 + bx1) // 2,
+                                    (max(ay1, by1) + min(ay2, by2)) // 2))
+        cols = sorted(sibs, key=lambda n: n.bounds[1])
+        for a, b in zip(cols, cols[1:]):
+            ax1, ay1, ax2, ay2 = a.bounds
+            bx1, by1, bx2, by2 = b.bounds
+            if _overlap(ax1, ax2, bx1, bx2) and by1 >= ay2:
+                g = by1 - ay2
+                if g > 0:
+                    gaps.append(Gap("v", g, (max(ax1, bx1) + min(ax2, bx2)) // 2,
+                                    (ay2 + by1) // 2))
+    return gaps

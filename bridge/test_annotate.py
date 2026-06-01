@@ -70,5 +70,44 @@ class TestClassifyLevels(unittest.TestCase):
         self.assertIsNone(self._by_bounds((0, 0, 1216, 2640)).level)
 
 
+class TestComputeGaps(unittest.TestCase):
+    def _row(self):
+        parent = annotate.Node(bounds=(0, 0, 400, 100), name="", clickable=False,
+                               focusable=False, cls="View")
+        a = annotate.Node(bounds=(0, 10, 100, 90), name="a", clickable=False,
+                          focusable=False, cls="View", parent=parent)
+        b = annotate.Node(bounds=(150, 10, 250, 90), name="b", clickable=False,
+                          focusable=False, cls="View", parent=parent)
+        c = annotate.Node(bounds=(300, 10, 400, 90), name="c", clickable=False,
+                          focusable=False, cls="View", parent=parent)
+        parent.children = [a, b, c]
+        return [parent, a, b, c]
+
+    def test_horizontal_gaps(self):
+        gaps = annotate.compute_gaps(self._row())
+        h = [g for g in gaps if g.orientation == "h"]
+        self.assertEqual(sorted(g.value for g in h), [50, 50])
+
+    def test_no_gap_for_single_child(self):
+        parent = annotate.Node(bounds=(0, 0, 100, 100), name="", clickable=False,
+                               focusable=False, cls="View")
+        only = annotate.Node(bounds=(10, 10, 90, 90), name="x", clickable=False,
+                             focusable=False, cls="View", parent=parent)
+        parent.children = [only]
+        self.assertEqual(annotate.compute_gaps([parent, only]), [])
+
+    def test_vertical_gap(self):
+        parent = annotate.Node(bounds=(0, 0, 100, 300), name="", clickable=False,
+                               focusable=False, cls="View")
+        top = annotate.Node(bounds=(10, 0, 90, 100), name="t", clickable=False,
+                            focusable=False, cls="View", parent=parent)
+        bot = annotate.Node(bounds=(10, 160, 90, 260), name="b", clickable=False,
+                            focusable=False, cls="View", parent=parent)
+        parent.children = [top, bot]
+        gaps = annotate.compute_gaps([parent, top, bot])
+        v = [g for g in gaps if g.orientation == "v"]
+        self.assertEqual([g.value for g in v], [60])
+
+
 if __name__ == "__main__":
     unittest.main()
