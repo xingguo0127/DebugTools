@@ -82,6 +82,14 @@ class TestParseHarmony(unittest.TestCase):
         self.assertTrue(card.clickable)
         self.assertEqual(len(card.children), 2)
 
+    def test_long_clickable_maps_to_focusable(self):
+        # 鸿蒙无 focusable 字段：longClickable 兜底映射到 Node.focusable
+        nodes = annotate.parse_harmony(
+            '{"attributes":{"type":"Button","bounds":"[0,0][100,50]",'
+            '"clickable":"false","longClickable":"true","text":""},"children":[]}')
+        self.assertTrue(nodes[0].focusable)
+        self.assertFalse(nodes[0].clickable)
+
     def test_classify_levels_harmony(self):
         annotate.classify_levels(self.nodes)
         self.assertEqual(self._by_bounds((67, 204, 283, 267)).level, "primary")     # clickable Text

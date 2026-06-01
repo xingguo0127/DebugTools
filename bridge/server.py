@@ -265,8 +265,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
             resp["width"], resp["height"] = dims
 
     def _dump_hm_layout(self):
-        """hdc uitest dumpLayout → 取设备上生成的 JSON，返回字符串，失败返回 None。"""
+        """hdc uitest dumpLayout → 取设备上生成的 JSON，返回字符串，失败返回 None。
+
+        本地落地文件用唯一临时名（多线程并发请求不会互相覆盖），读完即删。
+        """
         import re
+        import tempfile
         try:
             r = subprocess.run(
                 ["hdc", "shell", "uitest", "dumpLayout"],
@@ -278,20 +282,23 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if not m:
                 return None
             device_path = m.group(1)
-            local = IMAGES_DIR / "_hm_layout.json"
-            r2 = subprocess.run(
-                ["hdc", "file", "recv", device_path, str(local)],
-                capture_output=True, timeout=30, text=True,
-            )
-            self._hdc_cleanup(device_path)
-            if r2.returncode != 0 or not local.exists():
-                return None
-            data = local.read_text(encoding="utf-8", errors="replace")
+            fd, tmp = tempfile.mkstemp(suffix=".json", dir=str(IMAGES_DIR))
+            os.close(fd)
+            local = Path(tmp)
             try:
-                local.unlink()
-            except Exception:
-                pass
-            return data
+                r2 = subprocess.run(
+                    ["hdc", "file", "recv", device_path, str(local)],
+                    capture_output=True, timeout=30, text=True,
+                )
+                self._hdc_cleanup(device_path)
+                if r2.returncode != 0 or not local.exists():
+                    return None
+                return local.read_text(encoding="utf-8", errors="replace")
+            finally:
+                try:
+                    local.unlink()
+                except Exception:
+                    pass
         except Exception:
             return None
 
