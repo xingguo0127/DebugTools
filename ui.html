@@ -99,7 +99,7 @@ function gatherOptions() {
       size: document.getElementById('opt-size').checked,
       name: document.getElementById('opt-name').checked,
       spacing: document.getElementById('opt-spacing').checked,
-      level: document.querySelector('input[name="opt-level"]:checked').value
+      level: (document.querySelector('input[name="opt-level"]:checked') || { value: 'all' }).value
     }
   };
 }
@@ -214,7 +214,7 @@ async function takeScreenshot(type, btn) {
     }}, '*');
 
     setStatus('Screenshot: ' + data.filename + (data.note ? '\n' + data.note : ''),
-              data.note ? '' : 'success');
+              'success');
   } catch (e) {
     setStatus('Error: ' + e.message, 'error');
   }
