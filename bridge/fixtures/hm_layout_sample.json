@@ -1,0 +1,12 @@
+{
+  "attributes": {"type": "root", "bounds": "[0,0][1256,2760]", "clickable": "false", "text": "", "description": ""},
+  "children": [
+    {"attributes": {"type": "Text", "bounds": "[67,204][283,267]", "clickable": "true", "text": "圆周旅迹", "description": ""}, "children": []},
+    {"attributes": {"type": "Image", "bounds": "[910,195][991,276]", "clickable": "true", "text": "", "description": "", "id": "img_logo.png"}, "children": []},
+    {"attributes": {"type": "Text", "bounds": "[67,418][628,489]", "clickable": "false", "text": "精选专题", "description": ""}, "children": []},
+    {"attributes": {"type": "Stack", "bounds": "[68,556][777,1366]", "clickable": "true", "text": "", "description": ""}, "children": [
+      {"attributes": {"type": "Text", "bounds": "[135,1108][710,1163]", "clickable": "false", "text": "六一，去2008年逛逛", "description": ""}, "children": []},
+      {"attributes": {"type": "Text", "bounds": "[135,1269][710,1316]", "clickable": "false", "text": "9个地点", "description": ""}, "children": []}
+    ]}
+  ]
+}

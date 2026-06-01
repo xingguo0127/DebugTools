@@ -133,7 +133,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             device_type = "adb"
 
         if device_type == "hdc":
-            self._screenshot_hdc(should_annotate)
+            self._screenshot_hdc(should_annotate, options)
         else:
             self._screenshot_adb(should_annotate, options)
 
@@ -198,24 +198,51 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return None
 
     def _annotate_into(self, resp, fp, options):
-        """在 resp 上把 filename 换成标注图；任何失败则保留原图并写 note。"""
+        """adb：dump 层级 XML → 解析 → 渲染。失败保留原图并写 note。"""
         try:
             import annotate as ann
         except Exception:
             resp["note"] = "标注模块加载失败，已返回原图"
             return
-        options = {
-            "level": str(options.get("level", "all")),
-            "size": bool(options.get("size", True)),
-            "name": bool(options.get("name", True)),
-            "spacing": bool(options.get("spacing", False)),
-        }
         xml = self._dump_ui_xml()
         if not xml:
             resp["note"] = "未能获取层级，已返回原图"
             return
         try:
             nodes = ann.parse_hierarchy(xml)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        self._render_into(resp, fp, options, nodes)
+
+    def _annotate_hdc(self, resp, fp, options):
+        """鸿蒙：uitest dumpLayout JSON → 解析 → 渲染。失败保留原图并写 note。"""
+        try:
+            import annotate as ann
+        except Exception:
+            resp["note"] = "标注模块加载失败，已返回原图"
+            return
+        layout = self._dump_hm_layout()
+        if not layout:
+            resp["note"] = "未能获取层级，已返回原图"
+            return
+        try:
+            nodes = ann.parse_harmony(layout)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        self._render_into(resp, fp, options, nodes)
+
+    def _render_into(self, resp, fp, options, nodes):
+        """共享渲染：归一化选项 → 分层 → 选目标 → 间距 → 渲染 → 另存 _annotated.png。"""
+        import annotate as ann
+        options = {
+            "level": str(options.get("level", "all")),
+            "size": bool(options.get("size", True)),
+            "name": bool(options.get("name", True)),
+            "spacing": bool(options.get("spacing", False)),
+        }
+        try:
             ann.classify_levels(nodes)
             if not ann.select_targets(nodes, options["level"]):
                 resp["note"] = "未识别到可标注组件，已返回原图"
@@ -237,7 +264,38 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if dims:
             resp["width"], resp["height"] = dims
 
-    def _screenshot_hdc(self, annotate=False):
+    def _dump_hm_layout(self):
+        """hdc uitest dumpLayout → 取设备上生成的 JSON，返回字符串，失败返回 None。"""
+        import re
+        try:
+            r = subprocess.run(
+                ["hdc", "shell", "uitest", "dumpLayout"],
+                capture_output=True, timeout=20, text=True,
+            )
+            if r.returncode != 0:
+                return None
+            m = re.search(r"(/data/local/tmp/layout_\d+\.json)", r.stdout or "")
+            if not m:
+                return None
+            device_path = m.group(1)
+            local = IMAGES_DIR / "_hm_layout.json"
+            r2 = subprocess.run(
+                ["hdc", "file", "recv", device_path, str(local)],
+                capture_output=True, timeout=30, text=True,
+            )
+            self._hdc_cleanup(device_path)
+            if r2.returncode != 0 or not local.exists():
+                return None
+            data = local.read_text(encoding="utf-8", errors="replace")
+            try:
+                local.unlink()
+            except Exception:
+                pass
+            return data
+        except Exception:
+            return None
+
+    def _screenshot_hdc(self, annotate=False, options=None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.jpeg"
         device_path = f"/data/local/tmp/{fn}"
@@ -265,7 +323,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             if dims:
                 resp["width"], resp["height"] = dims
             if annotate:
-                resp["note"] = "鸿蒙设备暂不支持详细标注，已返回原图"
+                self._annotate_hdc(resp, fp, options or {})
             self._json(resp)
         except FileNotFoundError:
             self._json({"error": "hdc not found in PATH"})

@@ -4,10 +4,16 @@ import unittest
 import annotate
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "window_dump_sample.xml")
+HM_FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "hm_layout_sample.json")
 
 
 def load_fixture():
     with open(FIXTURE, encoding="utf-8") as f:
+        return f.read()
+
+
+def load_hm_fixture():
+    with open(HM_FIXTURE, encoding="utf-8") as f:
         return f.read()
 
 
@@ -48,6 +54,40 @@ class TestParseHierarchy(unittest.TestCase):
                'clickable="true" focusable="false" bounds="[0,0][10,10]" /></hierarchy>')
         nodes = annotate.parse_hierarchy(xml)
         self.assertEqual(nodes[0].name, "submit_btn")
+
+
+class TestParseHarmony(unittest.TestCase):
+    def setUp(self):
+        self.nodes = annotate.parse_harmony(load_hm_fixture())
+
+    def _by_bounds(self, b):
+        return next(n for n in self.nodes if n.bounds == b)
+
+    def test_bounds_and_count(self):
+        self.assertEqual(self.nodes[0].bounds, (0, 0, 1256, 2760))
+        self.assertEqual(len(self.nodes), 7)
+
+    def test_name_from_text(self):
+        names = {n.name for n in self.nodes}
+        self.assertIn("圆周旅迹", names)
+        self.assertIn("精选专题", names)
+        self.assertIn("六一，去2008年逛逛", names)
+
+    def test_image_id_not_used_as_name(self):
+        # Image 节点有 id="img_logo.png" 但无 text/description → 名字为空（不取 id/key 路径噪声）
+        self.assertEqual(self._by_bounds((910, 195, 991, 276)).name, "")
+
+    def test_clickable_and_children(self):
+        card = self._by_bounds((68, 556, 777, 1366))
+        self.assertTrue(card.clickable)
+        self.assertEqual(len(card.children), 2)
+
+    def test_classify_levels_harmony(self):
+        annotate.classify_levels(self.nodes)
+        self.assertEqual(self._by_bounds((67, 204, 283, 267)).level, "primary")     # clickable Text
+        self.assertEqual(self._by_bounds((68, 556, 777, 1366)).level, "primary")    # clickable 卡片
+        self.assertEqual(self._by_bounds((135, 1108, 710, 1163)).level, "secondary")  # text 叶子
+        self.assertIsNone(self._by_bounds((0, 0, 1256, 2760)).level)                # 全屏 root → 噪声
 
 
 class TestClassifyLevels(unittest.TestCase):

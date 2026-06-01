@@ -14,7 +14,10 @@
 ## 范围
 
 - **本期仅 Android（adb）**。数据源 `adb shell uiautomator dump`。
-- HarmonyOS（hdc）层级走 `uitest dumpLayout`（JSON，格式不同），当前无 hdc 设备可验证，**留作后续**：`annotate.py` 的解析层预留接口，渲染层复用。
+- **HarmonyOS（hdc）已支持**（2026-06-01 真机验证）：层级走 `hdc shell uitest dumpLayout`，输出 `{attributes, children}` 的 JSON。`annotate.parse_harmony` 单独解析，分层 / 间距 / 渲染层与 Android 完全复用。
+  - 鸿蒙名称取 `description → text`（**保留 text**：鸿蒙文本多为整块、非逐字；`description` 实测多为空；不取 `id/key`，它们常是图片资源路径噪声）。
+  - 鸿蒙无 `focusable` 字段，一级判定用 `clickable`（`focusable` 由 `longClickable` 兜底）。
+  - `bounds` 格式 `[x1,y1][x2,y2]` 与 Android 相同，复用 `_parse_bounds`；截图（`snapshot_display`）与层级同分辨率，无需缩放。
 - iOS 物理设备不在范围内（已于 2026-05-14 整体放弃）。
 
 ## 可行性验证（2026-06-01，实测）

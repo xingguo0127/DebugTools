@@ -4,6 +4,7 @@
 仅 render() 依赖 Pillow。
 """
 import io
+import json
 import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
@@ -100,6 +101,54 @@ def parse_hierarchy(xml):
             walk(child, next_parent)
 
     walk(root, None)
+    return nodes
+
+
+def _hm_node_name(attrs):
+    # 鸿蒙：description 多为空，text 通常是整块有用文字（不逐字）。
+    # 不取 id/key —— 它们常是图片资源路径，是噪声。
+    for k in ("description", "text"):
+        v = (attrs.get(k) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def parse_harmony(layout):
+    """解析 HarmonyOS `uitest dumpLayout` 的 JSON 为扁平 Node 列表。
+
+    结构为 {attributes, children} 树。与 Android 不同：名称取 description→text；
+    无 focusable 字段，用 longClickable 兜底。bounds 格式与 Android 相同，复用 _parse_bounds。
+    """
+    if isinstance(layout, (str, bytes)):
+        layout = json.loads(layout)
+    nodes = []
+
+    def walk(node, parent):
+        next_parent = parent
+        attrs = node.get("attributes") if isinstance(node, dict) else None
+        if attrs is not None:
+            try:
+                bounds = _parse_bounds(attrs.get("bounds", ""))
+            except ValueError:
+                bounds = None
+            if bounds is not None:
+                n = Node(
+                    bounds=bounds,
+                    name=_hm_node_name(attrs),
+                    clickable=attrs.get("clickable") == "true",
+                    focusable=attrs.get("longClickable") == "true",
+                    cls=attrs.get("type") or "",
+                    parent=parent,
+                )
+                if parent is not None:
+                    parent.children.append(n)
+                nodes.append(n)
+                next_parent = n
+        for child in (node.get("children", []) if isinstance(node, dict) else []):
+            walk(child, next_parent)
+
+    walk(layout, None)
     return nodes
 
 
