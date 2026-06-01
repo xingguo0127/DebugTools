@@ -119,7 +119,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def _screenshot(self):
         device_type = "adb"
-        annotate = False
+        should_annotate = False
         options = {}
         try:
             length = int(self.headers.get("Content-Length", 0))
@@ -127,7 +127,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
                 body = self.rfile.read(length)
                 data = json.loads(body)
                 device_type = data.get("type", "adb")
-                annotate = bool(data.get("annotate", False))
+                should_annotate = bool(data.get("annotate", False))
                 options = data.get("options", {}) or {}
         except Exception:
             device_type = "adb"
@@ -135,7 +135,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if device_type == "hdc":
             self._screenshot_hdc()
         else:
-            self._screenshot_adb(annotate, options)
+            self._screenshot_adb(should_annotate, options)
 
     def _screenshot_adb(self, annotate=False, options=None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -188,7 +188,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
             )
             if r.returncode != 0 or not r.stdout:
                 return None
-            return r.stdout.decode("utf-8", "replace")
+            xml = r.stdout.decode("utf-8", "replace")
+            subprocess.run(
+                ["adb", "shell", "rm", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=5,
+            )
+            return xml
         except Exception:
             return None
 
@@ -199,6 +204,12 @@ class BridgeHandler(BaseHTTPRequestHandler):
         except Exception:
             resp["note"] = "标注模块加载失败，已返回原图"
             return
+        options = {
+            "level": str(options.get("level", "all")),
+            "size": bool(options.get("size", True)),
+            "name": bool(options.get("name", True)),
+            "spacing": bool(options.get("spacing", False)),
+        }
         xml = self._dump_ui_xml()
         if not xml:
             resp["note"] = "未能获取层级，已返回原图"
@@ -213,7 +224,11 @@ class BridgeHandler(BaseHTTPRequestHandler):
             return
         ann_fn = fp.stem + "_annotated.png"
         ann_fp = fp.parent / ann_fn
-        ann_fp.write_bytes(png)
+        try:
+            ann_fp.write_bytes(png)
+        except Exception as e:
+            resp["note"] = f"标注图写入失败，已返回原图：{e}"
+            return
         resp["filename"] = ann_fn
         dims = _image_dimensions(ann_fp)
         if dims:
