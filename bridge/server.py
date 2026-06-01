@@ -119,21 +119,25 @@ class BridgeHandler(BaseHTTPRequestHandler):
 
     def _screenshot(self):
         device_type = "adb"
+        should_annotate = False
+        options = {}
         try:
             length = int(self.headers.get("Content-Length", 0))
             if length > 0:
                 body = self.rfile.read(length)
                 data = json.loads(body)
                 device_type = data.get("type", "adb")
+                should_annotate = bool(data.get("annotate", False))
+                options = data.get("options", {}) or {}
         except Exception:
             device_type = "adb"
 
         if device_type == "hdc":
-            self._screenshot_hdc()
+            self._screenshot_hdc(should_annotate, options)
         else:
-            self._screenshot_adb()
+            self._screenshot_adb(should_annotate, options)
 
-    def _screenshot_adb(self):
+    def _screenshot_adb(self, annotate=False, options=None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.png"
         fp = IMAGES_DIR / fn
@@ -163,11 +167,142 @@ class BridgeHandler(BaseHTTPRequestHandler):
             dims = _image_dimensions(fp)
             if dims:
                 resp["width"], resp["height"] = dims
+            if annotate:
+                self._annotate_into(resp, fp, options or {})
             self._json(resp)
         except Exception as e:
             self._json({"error": str(e)})
 
-    def _screenshot_hdc(self):
+    def _dump_ui_xml(self):
+        """adb uiautomator dump → 返回 XML 字符串，失败返回 None。"""
+        try:
+            r = subprocess.run(
+                ["adb", "shell", "uiautomator", "dump", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=15, text=True,
+            )
+            if r.returncode != 0:
+                return None
+            r = subprocess.run(
+                ["adb", "exec-out", "cat", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=15,
+            )
+            if r.returncode != 0 or not r.stdout:
+                return None
+            xml = r.stdout.decode("utf-8", "replace")
+            subprocess.run(
+                ["adb", "shell", "rm", "/sdcard/window_dump.xml"],
+                capture_output=True, timeout=5,
+            )
+            return xml
+        except Exception:
+            return None
+
+    def _annotate_into(self, resp, fp, options):
+        """adb：dump 层级 XML → 解析 → 渲染。失败保留原图并写 note。"""
+        try:
+            import annotate as ann
+        except Exception:
+            resp["note"] = "标注模块加载失败，已返回原图"
+            return
+        xml = self._dump_ui_xml()
+        if not xml:
+            resp["note"] = "未能获取层级，已返回原图"
+            return
+        try:
+            nodes = ann.parse_hierarchy(xml)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        self._render_into(resp, fp, options, nodes)
+
+    def _annotate_hdc(self, resp, fp, options):
+        """鸿蒙：uitest dumpLayout JSON → 解析 → 渲染。失败保留原图并写 note。"""
+        try:
+            import annotate as ann
+        except Exception:
+            resp["note"] = "标注模块加载失败，已返回原图"
+            return
+        layout = self._dump_hm_layout()
+        if not layout:
+            resp["note"] = "未能获取层级，已返回原图"
+            return
+        try:
+            nodes = ann.parse_harmony(layout)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        self._render_into(resp, fp, options, nodes)
+
+    def _render_into(self, resp, fp, options, nodes):
+        """共享渲染：归一化选项 → 分层 → 选目标 → 间距 → 渲染 → 另存 _annotated.png。"""
+        import annotate as ann
+        options = {
+            "level": str(options.get("level", "all")),
+            "size": bool(options.get("size", True)),
+            "name": bool(options.get("name", True)),
+            "spacing": bool(options.get("spacing", False)),
+        }
+        try:
+            ann.classify_levels(nodes)
+            if not ann.select_targets(nodes, options["level"]):
+                resp["note"] = "未识别到可标注组件，已返回原图"
+                return
+            gaps = ann.compute_gaps(nodes)
+            png = ann.render(str(fp), nodes, gaps, options)
+        except Exception as e:
+            resp["note"] = f"标注失败，已返回原图：{e}"
+            return
+        ann_fn = fp.stem + "_annotated.png"
+        ann_fp = fp.parent / ann_fn
+        try:
+            ann_fp.write_bytes(png)
+        except Exception as e:
+            resp["note"] = f"标注图写入失败，已返回原图：{e}"
+            return
+        resp["filename"] = ann_fn
+        dims = _image_dimensions(ann_fp)
+        if dims:
+            resp["width"], resp["height"] = dims
+
+    def _dump_hm_layout(self):
+        """hdc uitest dumpLayout → 取设备上生成的 JSON，返回字符串，失败返回 None。
+
+        本地落地文件用唯一临时名（多线程并发请求不会互相覆盖），读完即删。
+        """
+        import re
+        import tempfile
+        try:
+            r = subprocess.run(
+                ["hdc", "shell", "uitest", "dumpLayout"],
+                capture_output=True, timeout=20, text=True,
+            )
+            if r.returncode != 0:
+                return None
+            m = re.search(r"(/data/local/tmp/layout_\d+\.json)", r.stdout or "")
+            if not m:
+                return None
+            device_path = m.group(1)
+            fd, tmp = tempfile.mkstemp(suffix=".json", dir=str(IMAGES_DIR))
+            os.close(fd)
+            local = Path(tmp)
+            try:
+                r2 = subprocess.run(
+                    ["hdc", "file", "recv", device_path, str(local)],
+                    capture_output=True, timeout=30, text=True,
+                )
+                self._hdc_cleanup(device_path)
+                if r2.returncode != 0 or not local.exists():
+                    return None
+                return local.read_text(encoding="utf-8", errors="replace")
+            finally:
+                try:
+                    local.unlink()
+                except Exception:
+                    pass
+        except Exception:
+            return None
+
+    def _screenshot_hdc(self, annotate=False, options=None):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.jpeg"
         device_path = f"/data/local/tmp/{fn}"
@@ -194,6 +329,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             dims = _image_dimensions(fp)
             if dims:
                 resp["width"], resp["height"] = dims
+            if annotate:
+                self._annotate_hdc(resp, fp, options or {})
             self._json(resp)
         except FileNotFoundError:
             self._json({"error": "hdc not found in PATH"})
