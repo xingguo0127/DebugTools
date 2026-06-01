@@ -86,7 +86,11 @@ class TestComputeGaps(unittest.TestCase):
     def test_horizontal_gaps(self):
         gaps = annotate.compute_gaps(self._row())
         h = [g for g in gaps if g.orientation == "h"]
+        self.assertEqual(len(h), 2)
         self.assertEqual(sorted(g.value for g in h), [50, 50])
+        # 第一个间隙在 a(…100) 与 b(150…) 之间，中点 x=125，行内 y=50
+        first = min(h, key=lambda g: g.x)
+        self.assertEqual((first.x, first.y), (125, 50))
 
     def test_no_gap_for_single_child(self):
         parent = annotate.Node(bounds=(0, 0, 100, 100), name="", clickable=False,
