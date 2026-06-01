@@ -166,6 +166,13 @@ def _load_font(size):
         return ImageFont.load_default()
 
 
+def select_targets(nodes, level):
+    """按 level 选出要标注的节点：'primary' 仅一级；其余（含 'all'）一级+二级。"""
+    if level == "primary":
+        return [n for n in nodes if n.level == "primary"]
+    return [n for n in nodes if n.level in ("primary", "secondary")]
+
+
 def render(image_path, nodes, gaps, options):
     """在 image_path 上画标注，返回 PNG bytes。需要 Pillow。"""
     from PIL import Image, ImageDraw
@@ -175,11 +182,7 @@ def render(image_path, nodes, gaps, options):
     show_name = options.get("name", True)
     show_spacing = options.get("spacing", False)
 
-    # level == "primary" 仅一级；其余（含默认 "all"）渲染一级+二级
-    if level == "primary":
-        targets = [n for n in nodes if n.level == "primary"]
-    else:
-        targets = [n for n in nodes if n.level in ("primary", "secondary")]
+    targets = select_targets(nodes, level)
 
     img = Image.open(image_path).convert("RGB")
     draw = ImageDraw.Draw(img)

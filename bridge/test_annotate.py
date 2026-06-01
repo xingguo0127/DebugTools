@@ -69,6 +69,16 @@ class TestClassifyLevels(unittest.TestCase):
     def test_non_clickable_container_is_none(self):
         self.assertIsNone(self._by_bounds((0, 0, 1216, 2640)).level)
 
+    def test_select_targets_primary_only(self):
+        prim = annotate.select_targets(self.nodes, "primary")
+        self.assertTrue(all(n.level == "primary" for n in prim))
+        self.assertTrue(len(prim) >= 1)
+
+    def test_select_targets_all_includes_secondary(self):
+        allt = annotate.select_targets(self.nodes, "all")
+        self.assertTrue(any(n.level == "secondary" for n in allt))
+        self.assertGreaterEqual(len(allt), len(annotate.select_targets(self.nodes, "primary")))
+
 
 class TestComputeGaps(unittest.TestCase):
     def _row(self):
@@ -125,7 +135,8 @@ class TestRenderSmoke(unittest.TestCase):
             img.save(tf.name)
             path = tf.name
         try:
-            original = open(path, "rb").read()
+            with open(path, "rb") as fh:
+                original = fh.read()
             nodes = annotate.parse_hierarchy(load_fixture())
             annotate.classify_levels(nodes)
             gaps = annotate.compute_gaps(nodes)

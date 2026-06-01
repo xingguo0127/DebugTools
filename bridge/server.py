@@ -133,7 +133,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
             device_type = "adb"
 
         if device_type == "hdc":
-            self._screenshot_hdc()
+            self._screenshot_hdc(should_annotate)
         else:
             self._screenshot_adb(should_annotate, options)
 
@@ -217,6 +217,9 @@ class BridgeHandler(BaseHTTPRequestHandler):
         try:
             nodes = ann.parse_hierarchy(xml)
             ann.classify_levels(nodes)
+            if not ann.select_targets(nodes, options["level"]):
+                resp["note"] = "未识别到可标注组件，已返回原图"
+                return
             gaps = ann.compute_gaps(nodes)
             png = ann.render(str(fp), nodes, gaps, options)
         except Exception as e:
@@ -234,7 +237,7 @@ class BridgeHandler(BaseHTTPRequestHandler):
         if dims:
             resp["width"], resp["height"] = dims
 
-    def _screenshot_hdc(self):
+    def _screenshot_hdc(self, annotate=False):
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         fn = f"screen_{ts}.jpeg"
         device_path = f"/data/local/tmp/{fn}"
@@ -261,6 +264,8 @@ class BridgeHandler(BaseHTTPRequestHandler):
             dims = _image_dimensions(fp)
             if dims:
                 resp["width"], resp["height"] = dims
+            if annotate:
+                resp["note"] = "鸿蒙设备暂不支持详细标注，已返回原图"
             self._json(resp)
         except FileNotFoundError:
             self._json({"error": "hdc not found in PATH"})
