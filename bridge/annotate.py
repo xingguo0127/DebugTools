@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class Node:
-    bounds: tuple
+    bounds: tuple[int, int, int, int]
     name: str
     clickable: bool
     focusable: bool

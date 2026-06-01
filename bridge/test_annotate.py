@@ -19,11 +19,11 @@ class TestParseHierarchy(unittest.TestCase):
         root = self.nodes[0]
         self.assertEqual(root.bounds, (0, 0, 1216, 2640))
 
-    def test_name_prefers_text_then_content_desc(self):
+    def test_name_fallback_fields(self):
         names = {n.name for n in self.nodes}
-        self.assertIn("厦门旅行", names)       # 来自 text
         self.assertIn("历史对话", names)       # 来自 content-desc
         self.assertIn("麦克风", names)         # 来自 content-desc
+        self.assertIn("厦门旅行", names)       # 来自 text（该节点无 content-desc）
 
     def test_container_without_name_is_empty(self):
         card = next(n for n in self.nodes if n.bounds == (54, 0, 1162, 1297))
@@ -38,6 +38,13 @@ class TestParseHierarchy(unittest.TestCase):
         card = next(n for n in self.nodes if n.bounds == (54, 0, 1162, 1297))
         self.assertTrue(card.clickable)
         self.assertTrue(card.focusable)
+
+    def test_name_falls_back_to_resource_id(self):
+        xml = ('<hierarchy><node class="android.widget.Button" '
+               'resource-id="com.app:id/submit_btn" content-desc="" text="" '
+               'clickable="true" focusable="false" bounds="[0,0][10,10]" /></hierarchy>')
+        nodes = annotate.parse_hierarchy(xml)
+        self.assertEqual(nodes[0].name, "submit_btn")
 
 
 if __name__ == "__main__":
