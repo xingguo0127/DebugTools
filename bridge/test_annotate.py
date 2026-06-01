@@ -23,7 +23,9 @@ class TestParseHierarchy(unittest.TestCase):
         names = {n.name for n in self.nodes}
         self.assertIn("历史对话", names)       # 来自 content-desc
         self.assertIn("麦克风", names)         # 来自 content-desc
-        self.assertIn("厦门旅行", names)       # 来自 text（该节点无 content-desc）
+        # 纯文本节点不再回退到 text，名字为空（避免逐字噪声）
+        text_node = next(n for n in self.nodes if n.bounds == (438, 469, 779, 564))
+        self.assertEqual(text_node.name, "")
 
     def test_container_without_name_is_empty(self):
         card = next(n for n in self.nodes if n.bounds == (54, 0, 1162, 1297))
@@ -31,8 +33,9 @@ class TestParseHierarchy(unittest.TestCase):
 
     def test_parent_child_links(self):
         card = next(n for n in self.nodes if n.bounds == (54, 0, 1162, 1297))
-        child_names = {c.name for c in card.children}
-        self.assertEqual(child_names, {"厦门旅行", "旅行", "厦门", "带父母"})
+        # 4 个文本子节点：名字不再取 text（故都为空），但父子链接仍完整
+        self.assertEqual(len(card.children), 4)
+        self.assertTrue(all(c.name == "" for c in card.children))
 
     def test_clickable_focusable_flags(self):
         card = next(n for n in self.nodes if n.bounds == (54, 0, 1162, 1297))
@@ -64,10 +67,30 @@ class TestClassifyLevels(unittest.TestCase):
         self.assertEqual(kb.name, "键盘")
 
     def test_named_leaf_is_secondary(self):
-        self.assertEqual(self._by_bounds((438, 469, 779, 564)).level, "secondary")
+        # 麦克风：非可点击、有 content-desc 的叶子 → secondary
+        mic = self._by_bounds((568, 2458, 649, 2539))
+        self.assertEqual(mic.level, "secondary")
+        self.assertEqual(mic.name, "麦克风")
 
     def test_non_clickable_container_is_none(self):
         self.assertIsNone(self._by_bounds((0, 0, 1216, 2640)).level)
+
+    def test_fullscreen_node_skipped_as_noise(self):
+        # 近全屏可点击容器（背景/scrim）应被剔除，不参与标注
+        nodes = annotate.parse_hierarchy(
+            '<hierarchy><node class="android.view.View" content-desc="" '
+            'clickable="true" focusable="true" bounds="[0,0][1216,2640]" />'
+            '</hierarchy>')
+        annotate.classify_levels(nodes)
+        self.assertIsNone(nodes[0].level)
+
+    def test_thin_strip_node_skipped_as_noise(self):
+        # 退化细条（高 < 4px）应被剔除
+        nodes = annotate.parse_hierarchy(
+            '<hierarchy><node class="android.view.View" content-desc="bar" '
+            'clickable="true" bounds="[0,0][1216,1]" /></hierarchy>')
+        annotate.classify_levels(nodes)
+        self.assertIsNone(nodes[0].level)
 
     def test_select_targets_primary_only(self):
         prim = annotate.select_targets(self.nodes, "primary")

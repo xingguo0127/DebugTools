@@ -62,7 +62,9 @@ def _parse_bounds(s):
 
 
 def _node_name(el):
-    for attr in ("content-desc", "text", "resource-id"):
+    # 只取真正的语义名（无障碍描述 / 资源 id）。不回退到 text：
+    # 很多 App 逐字渲染文本为独立节点，回退 text 会产生大量逐字噪声标注。
+    for attr in ("content-desc", "resource-id"):
         v = (el.get(attr) or "").strip()
         if v:
             return v.split("/")[-1] if attr == "resource-id" else v
@@ -101,10 +103,28 @@ def parse_hierarchy(xml):
     return nodes
 
 
+def _is_noise(n, screen_w, screen_h):
+    """近全屏容器（背景/scrim）或退化细条对指代无意义，跳过不标。"""
+    if n.width < 4 or n.height < 4:
+        return True
+    if n.width >= 0.9 * screen_w and n.height >= 0.9 * screen_h:
+        return True
+    return False
+
+
 def classify_levels(nodes):
-    """按可点击性分层：clickable/focusable → primary；具名叶子 → secondary；其余 None。"""
+    """按可点击性分层：clickable/focusable → primary；具名叶子 → secondary；其余 None。
+
+    先剔除噪声节点（近全屏背景、退化细条）——它们对“用 ID 指代组件”没有价值。
+    """
+    if not nodes:
+        return
+    screen_w = max(n.bounds[2] for n in nodes)
+    screen_h = max(n.bounds[3] for n in nodes)
     for n in nodes:
-        if n.clickable or n.focusable:
+        if _is_noise(n, screen_w, screen_h):
+            n.level = None
+        elif n.clickable or n.focusable:
             n.level = "primary"
         elif n.is_leaf and n.name:
             n.level = "secondary"
@@ -194,19 +214,19 @@ def render(image_path, nodes, gaps, options):
         lw = 5 if n.level == "primary" else 2
         draw.rectangle([x1, y1, x2, y2], outline=color, width=lw)
 
-        parts = []
+        # 每个框始终带一个序号 #N，作为与 agent 沟通时指代组件的锚点
+        parts = [f"#{i + 1}"]
         if show_name and n.name:
             parts.append(n.name)
         if show_size:
             parts.append(f"{n.width}×{n.height}")
         label = "  ".join(parts)
-        if label:
-            box = draw.textbbox((0, 0), label, font=font)
-            tw, th = box[2] - box[0], box[3] - box[1]
-            lx = max(0, min(x1, img.width - tw - 8))
-            ly = max(0, y1 - th - 8)
-            draw.rectangle([lx, ly, lx + tw + 8, ly + th + 8], fill=color)
-            draw.text((lx + 4, ly + 3), label, fill=(255, 255, 255), font=font)
+        box = draw.textbbox((0, 0), label, font=font)
+        tw, th = box[2] - box[0], box[3] - box[1]
+        lx = max(0, min(x1, img.width - tw - 8))
+        ly = max(0, y1 - th - 8)
+        draw.rectangle([lx, ly, lx + tw + 8, ly + th + 8], fill=color)
+        draw.text((lx + 4, ly + 3), label, fill=(255, 255, 255), font=font)
 
     if show_spacing:
         for g in gaps:
