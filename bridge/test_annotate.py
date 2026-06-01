@@ -47,5 +47,28 @@ class TestParseHierarchy(unittest.TestCase):
         self.assertEqual(nodes[0].name, "submit_btn")
 
 
+class TestClassifyLevels(unittest.TestCase):
+    def setUp(self):
+        self.nodes = annotate.parse_hierarchy(load_fixture())
+        annotate.classify_levels(self.nodes)
+
+    def _by_bounds(self, b):
+        return next(n for n in self.nodes if n.bounds == b)
+
+    def test_clickable_container_is_primary(self):
+        self.assertEqual(self._by_bounds((54, 0, 1162, 1297)).level, "primary")
+
+    def test_clickable_leaf_imageview_is_primary(self):
+        kb = self._by_bounds((169, 2418, 330, 2579))
+        self.assertEqual(kb.level, "primary")
+        self.assertEqual(kb.name, "键盘")
+
+    def test_named_leaf_is_secondary(self):
+        self.assertEqual(self._by_bounds((438, 469, 779, 564)).level, "secondary")
+
+    def test_non_clickable_container_is_none(self):
+        self.assertIsNone(self._by_bounds((0, 0, 1216, 2640)).level)
+
+
 if __name__ == "__main__":
     unittest.main()

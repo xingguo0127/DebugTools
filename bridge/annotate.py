@@ -77,3 +77,14 @@ def parse_hierarchy(xml):
 
     walk(root, None)
     return nodes
+
+
+def classify_levels(nodes):
+    """按可点击性分层：clickable/focusable → primary；具名叶子 → secondary；其余 None。"""
+    for n in nodes:
+        if n.clickable or n.focusable:
+            n.level = "primary"
+        elif n.is_leaf and n.name:
+            n.level = "secondary"
+        else:
+            n.level = None
