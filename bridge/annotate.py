@@ -6,6 +6,17 @@
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+FONT_CANDIDATES = [
+    "/System/Library/Fonts/STHeiti Light.ttc",
+    "/System/Library/Fonts/Hiragino Sans GB.ttc",
+    "/Library/Fonts/Arial Unicode.ttf",
+]
+
+PALETTE = [
+    (229, 57, 53), (30, 136, 229), (67, 160, 71), (251, 140, 0),
+    (142, 36, 170), (0, 172, 193), (216, 27, 96), (124, 179, 66),
+]
+
 
 @dataclass
 class Node:
@@ -136,3 +147,68 @@ def compute_gaps(nodes):
                     gaps.append(Gap("v", g, (max(ax1, bx1) + min(ax2, bx2)) // 2,
                                     (ay2 + by1) // 2))
     return gaps
+
+
+def _load_font(size):
+    import os
+    from PIL import ImageFont
+    for path in FONT_CANDIDATES:
+        if os.path.exists(path):
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+    return ImageFont.load_default()
+
+
+def render(image_path, nodes, gaps, options):
+    """在 image_path 上画标注，返回 PNG bytes。需要 Pillow。"""
+    import io
+    from PIL import Image, ImageDraw
+
+    level = options.get("level", "all")
+    show_size = options.get("size", True)
+    show_name = options.get("name", True)
+    show_spacing = options.get("spacing", False)
+
+    if level == "primary":
+        targets = [n for n in nodes if n.level == "primary"]
+    else:
+        targets = [n for n in nodes if n.level in ("primary", "secondary")]
+
+    img = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(img)
+    font = _load_font(28)
+
+    for i, n in enumerate(targets):
+        color = PALETTE[i % len(PALETTE)]
+        x1, y1, x2, y2 = n.bounds
+        lw = 5 if n.level == "primary" else 2
+        draw.rectangle([x1, y1, x2, y2], outline=color, width=lw)
+
+        parts = []
+        if show_name and n.name:
+            parts.append(n.name)
+        if show_size:
+            parts.append(f"{n.width}×{n.height}")
+        label = "  ".join(parts)
+        if label:
+            box = draw.textbbox((0, 0), label, font=font)
+            tw, th = box[2] - box[0], box[3] - box[1]
+            ly = max(0, y1 - th - 8)
+            draw.rectangle([x1, ly, x1 + tw + 8, ly + th + 8], fill=color)
+            draw.text((x1 + 4, ly + 3), label, fill=(255, 255, 255), font=font)
+
+    if show_spacing:
+        for g in gaps:
+            label = str(g.value)
+            box = draw.textbbox((0, 0), label, font=font)
+            tw, th = box[2] - box[0], box[3] - box[1]
+            draw.rectangle([g.x - tw // 2 - 3, g.y - th // 2 - 2,
+                            g.x + tw // 2 + 3, g.y + th // 2 + 2], fill=(33, 33, 33))
+            draw.text((g.x - tw // 2, g.y - th // 2 - 1), label,
+                      fill=(255, 255, 255), font=font)
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
