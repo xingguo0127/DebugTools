@@ -119,20 +119,23 @@ class TestRenderSmoke(unittest.TestCase):
             from PIL import Image
         except ImportError:
             self.skipTest("Pillow 未安装")
-        import io
         import tempfile
         img = Image.new("RGB", (1216, 2640), (240, 240, 240))
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
             img.save(tf.name)
             path = tf.name
-        nodes = annotate.parse_hierarchy(load_fixture())
-        annotate.classify_levels(nodes)
-        gaps = annotate.compute_gaps(nodes)
-        opts = {"size": True, "name": True, "spacing": True, "level": "all"}
-        out = annotate.render(path, nodes, gaps, opts)
-        self.assertTrue(out.startswith(b"\x89PNG"))
-        self.assertGreater(len(out), 100)
-        os.unlink(path)
+        try:
+            original = open(path, "rb").read()
+            nodes = annotate.parse_hierarchy(load_fixture())
+            annotate.classify_levels(nodes)
+            gaps = annotate.compute_gaps(nodes)
+            opts = {"size": True, "name": True, "spacing": True, "level": "all"}
+            out = annotate.render(path, nodes, gaps, opts)
+            self.assertTrue(out.startswith(b"\x89PNG"))
+            self.assertGreater(len(out), 100)
+            self.assertNotEqual(out, original)  # 确认确实画了标注
+        finally:
+            os.unlink(path)
 
     def test_render_primary_only_subset(self):
         try:
@@ -144,12 +147,15 @@ class TestRenderSmoke(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tf:
             img.save(tf.name)
             path = tf.name
-        nodes = annotate.parse_hierarchy(load_fixture())
-        annotate.classify_levels(nodes)
-        out = annotate.render(path, nodes, [], {"size": True, "name": False,
-                                                "spacing": False, "level": "primary"})
-        self.assertTrue(out.startswith(b"\x89PNG"))
-        os.unlink(path)
+        try:
+            nodes = annotate.parse_hierarchy(load_fixture())
+            annotate.classify_levels(nodes)
+            out = annotate.render(path, nodes, [], {"size": True, "name": False,
+                                                    "spacing": False, "level": "primary"})
+            self.assertTrue(out.startswith(b"\x89PNG"))
+            self.assertGreater(len(out), 100)
+        finally:
+            os.unlink(path)
 
 
 if __name__ == "__main__":

@@ -3,9 +3,12 @@
 解析/分层/间距为纯函数，无 Pillow 依赖，可单测。
 仅 render() 依赖 Pillow。
 """
+import io
+import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 
+# macOS 系统字体（含中文）；非 macOS 环境会回退到默认字体
 FONT_CANDIDATES = [
     "/System/Library/Fonts/STHeiti Light.ttc",
     "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -150,7 +153,6 @@ def compute_gaps(nodes):
 
 
 def _load_font(size):
-    import os
     from PIL import ImageFont
     for path in FONT_CANDIDATES:
         if os.path.exists(path):
@@ -158,12 +160,14 @@ def _load_font(size):
                 return ImageFont.truetype(path, size)
             except Exception:
                 continue
-    return ImageFont.load_default()
+    try:
+        return ImageFont.load_default(size)
+    except TypeError:
+        return ImageFont.load_default()
 
 
 def render(image_path, nodes, gaps, options):
     """在 image_path 上画标注，返回 PNG bytes。需要 Pillow。"""
-    import io
     from PIL import Image, ImageDraw
 
     level = options.get("level", "all")
@@ -171,6 +175,7 @@ def render(image_path, nodes, gaps, options):
     show_name = options.get("name", True)
     show_spacing = options.get("spacing", False)
 
+    # level == "primary" 仅一级；其余（含默认 "all"）渲染一级+二级
     if level == "primary":
         targets = [n for n in nodes if n.level == "primary"]
     else:
@@ -195,9 +200,10 @@ def render(image_path, nodes, gaps, options):
         if label:
             box = draw.textbbox((0, 0), label, font=font)
             tw, th = box[2] - box[0], box[3] - box[1]
+            lx = max(0, min(x1, img.width - tw - 8))
             ly = max(0, y1 - th - 8)
-            draw.rectangle([x1, ly, x1 + tw + 8, ly + th + 8], fill=color)
-            draw.text((x1 + 4, ly + 3), label, fill=(255, 255, 255), font=font)
+            draw.rectangle([lx, ly, lx + tw + 8, ly + th + 8], fill=color)
+            draw.text((lx + 4, ly + 3), label, fill=(255, 255, 255), font=font)
 
     if show_spacing:
         for g in gaps:
